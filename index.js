@@ -1,0 +1,192 @@
+import {
+    Client,
+    GatewayIntentBits,
+    Partials,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    SlashCommandBuilder,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
+    AttachmentBuilder,
+    EmbedBuilder,
+    Routes,
+    REST
+} from "discord.js";
+
+import dotenv from "dotenv";
+dotenv.config();
+
+import express from "express";
+
+// ---- keep alive server (не даст ботy засыпать) ----
+const app = express();
+app.get("/", (_, res) => res.send("AFK bot is running 24/7"));
+app.listen(8080);
+
+// ---- CONFIG ----
+const TOKEN = process.env.TOKEN;
+const GUILD_ID = "1200037290047701042";            // ← ID сервера
+const PANEL_CHANNEL_ID = "1300952366954184754"; // ← ID канала панели
+const LOG_CHANNEL_ID = "1383462345790984283";     // ← ID канала логов
+
+const afk = new Map(); // userId → { reason, until }
+
+// ---- NEW CLIENT ----
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+    ],
+    partials: [Partials.Message]
+});
+
+// ---- REGISTER SLASH COMMAND ----
+const rest = new REST({ version: "10" }).setToken(TOKEN);
+
+async function registerCommands() {
+    await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), {
+        body: [
+            new SlashCommandBuilder()
+                .setName("afkpanel")
+                .setDescription("Создать панель AFK")
+                .toJSON()
+        ]
+    });
+}
+
+// ---- AFK PANEL UPDATE ----
+async function updatePanel(guild) {
+    const channel = guild.channels.cache.get(PANEL_CHANNEL_ID);
+
+    const embed = new EmbedBuilder()
+        .setTitle("⏳ Люди, находящиеся в AFK:")
+        .setColor("#2b2d31")
+        .setFooter({ text: "Garcia famq Majestic" });
+
+    if (afk.size === 0) {
+        embed.setDescription("✅ Сейчас никто не в AFK");
+    } else {
+        let text = `• Всего в AFK: **${afk.size}** чел.\n\n`;
+
+        let index = 1;
+        afk.forEach((data, userId) => {
+            const user = guild.members.cache.get(userId);
+            text += `**${index})** ${user} — Причина: \`${data.reason}\`\n`;
+            text += `Вернусь в: \`${data.until}\`\n\n`;
+            index++;
+        });
+
+        embed.setDescription(text);
+    }
+
+    const file = new AttachmentBuilder("banner.png");
+    embed.setImage("attachment://banner.png");
+
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId("afk_on")
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji("😴")
+            .setLabel("Отошёл AFK"),
+
+        new ButtonBuilder()
+            .setCustomId("afk_off")
+            .setStyle(ButtonStyle.Success)
+            .setEmoji("✅")
+            .setLabel("Вернулся из AFK")
+    );
+
+    if (client.afkMessage) {
+        await client.afkMessage.edit({
+            embeds: [embed],
+            files: [file],
+            components: [row],
+        });
+    } else {
+        client.afkMessage = await channel.send({
+            embeds: [embed],
+            files: [file],
+            components: [row],
+        });
+    }
+}
+
+// ---- LOGGING ----
+async function logAction(guild, user, action, reason = null, until = null) {
+    const channel = guild.channels.cache.get(LOG_CHANNEL_ID);
+
+    const embed = new EmbedBuilder()
+        .setTitle(action)
+        .setColor("#0077ff")
+        .addFields({ name: "Пользователь", value: user.toString(), inline: false });
+
+    if (reason) embed.addFields({ name: "Причина", value: "`" + reason + "`" });
+    if (until) embed.addFields({ name: "Вернётся в", value: "`" + until + "`" });
+
+    channel.send({ embeds: [embed] });
+}
+
+// ---- BUTTON HANDLERS ----
+client.on("interactionCreate", async (i) => {
+    if (i.isChatInputCommand() && i.commandName === "afkpanel") {
+        client.afkMessage = null;
+        await updatePanel(i.guild);
+        return i.reply({ content: "✅ Панель AFK создана", ephemeral: true });
+    }
+
+    if (i.isButton() && i.customId === "afk_on") {
+        const modal = new ModalBuilder()
+            .setCustomId("afk_modal")
+            .setTitle("Уход в AFK");
+
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId("reason")
+                    .setLabel("Причина")
+                    .setStyle(TextInputStyle.Paragraph)
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId("hours")
+                    .setLabel("Время (1-8 часов)")
+                    .setStyle(TextInputStyle.Short)
+            )
+        );
+
+        await i.showModal(modal);
+    }
+
+    if (i.isModalSubmit() && i.customId === "afk_modal") {
+        const reason = i.fields.getTextInputValue("reason");
+        const hours = Math.max(1, Math.min(8, parseInt(i.fields.getTextInputValue("hours"))));
+        const until = new Date(Date.now() + hours * 60 * 60 * 1000);
+
+        afk.set(i.user.id, {
+            reason,
+            until: until.toLocaleTimeString(),
+        });
+
+        await updatePanel(i.guild);
+        await logAction(i.guild, i.user, "😴 Ушёл в AFK", reason, until.toLocaleTimeString());
+        return i.reply({ content: "✅ Ты ушёл в AFK!", ephemeral: true });
+    }
+
+    if (i.isButton() && i.customId === "afk_off") {
+        afk.delete(i.user.id);
+        await updatePanel(i.guild);
+        await logAction(i.guild, i.user, "✅ Вернулся из AFK");
+        return i.reply({ content: "👋 Добро пожаловать обратно!", ephemeral: true });
+    }
+});
+
+// ---- READY ----
+client.once("ready", async () => {
+    console.log(`✅ Бот запущен как ${client.user.tag}`);
+    await registerCommands();
+});
+
+client.login(TOKEN);
