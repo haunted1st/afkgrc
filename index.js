@@ -104,17 +104,8 @@ async function updatePanel(guild) {
     embed.setImage("attachment://banner.png");
 
     const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId("afk_on")
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji("😴")
-            .setLabel("Отошёл AFK"),
-
-        new ButtonBuilder()
-            .setCustomId("afk_off")
-            .setStyle(ButtonStyle.Success)
-            .setEmoji("✅")
-            .setLabel("Вернулся из AFK")
+        new ButtonBuilder().setCustomId("afk_on").setStyle(ButtonStyle.Secondary).setEmoji("😴").setLabel("Отошёл AFK"),
+        new ButtonBuilder().setCustomId("afk_off").setStyle(ButtonStyle.Success).setEmoji("✅").setLabel("Вернулся из AFK")
     );
 
     if (client.afkMessage) {
@@ -135,11 +126,12 @@ async function updatePanel(guild) {
 // ---- LOGGING ----
 async function logAction(guild, user, action, reason = null) {
     const channel = guild.channels.cache.get(LOG_CHANNEL_ID);
+    if (!channel) return;
 
     const embed = new EmbedBuilder()
         .setTitle(action)
         .setColor("#0077ff")
-        .addFields({ name: "Пользователь", value: user.toString(), inline: false });
+        .addFields({ name: "Пользователь", value: user.toString() });
 
     if (reason) embed.addFields({ name: "Причина", value: "`" + reason + "`" });
 
@@ -164,7 +156,13 @@ setInterval(async () => {
     });
 
     if (updated) updatePanel(guild);
-}, 10000); // каждые 10 секунд проверка
+}, 10000); // проверка каждые 10 сек
+
+// ---- AUTO UPDATE PANEL (чтобы время "через Xч Yм" обновлялось) ----
+setInterval(() => {
+    const guild = client.guilds.cache.get(GUILD_ID);
+    if (guild) updatePanel(guild);
+}, 60000); // обновление панели каждую минуту
 
 // ---- BUTTON HANDLERS ----
 client.on("interactionCreate", async (i) => {
