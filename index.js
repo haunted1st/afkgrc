@@ -28,8 +28,8 @@ app.listen(8080);
 // ---- CONFIG ----
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = "1200037290047701042";
-const PANEL_CHANNEL_ID = "1300952366954184754";
-const LOG_CHANNEL_ID = "1383462345790984283";
+const PANEL_CHANNEL_ID = "1434217100636979310";
+const LOG_CHANNEL_ID = "1434217235546771467";
 
 const afk = new Map(); // userId → { reason, untilDate }
 
@@ -220,4 +220,5 @@ client.once("ready", async () => {
 });
 
 client.login(TOKEN);
+
 
