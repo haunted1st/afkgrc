@@ -85,7 +85,7 @@ async function updatePanel(guild) {
         .setFooter({ text: "Garcia famq Majestic" });
 
     if (afk.size === 0) {
-        embed.setDescription("✅ Сейчас никто не в AFK");
+        embed.setDescription("Сейчас никто не в AFK");
     } else {
         let text = `• Всего в AFK: **${afk.size}** чел.\n\n`;
         let index = 1;
@@ -104,8 +104,8 @@ async function updatePanel(guild) {
     embed.setImage("attachment://banner.png");
 
     const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId("afk_on").setStyle(ButtonStyle.Secondary).setEmoji("😴").setLabel("Отошёл AFK"),
-        new ButtonBuilder().setCustomId("afk_off").setStyle(ButtonStyle.Success).setEmoji("✅").setLabel("Вернулся из AFK")
+        new ButtonBuilder().setCustomId("afk_on").setStyle(ButtonStyle.Secondary).setEmoji("😴").setLabel("Отойти в AFK"),
+        new ButtonBuilder().setCustomId("afk_off").setStyle(ButtonStyle.Success).setEmoji("✅").setLabel("Вернуться из AFK")
     );
 
     if (client.afkMessage) {
@@ -220,3 +220,4 @@ client.once("ready", async () => {
 });
 
 client.login(TOKEN);
+
