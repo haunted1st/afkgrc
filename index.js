@@ -20,20 +20,20 @@ dotenv.config();
 
 import express from "express";
 
-// ---- keep alive server (не даст ботy засыпать) ----
+// ---- keep alive server (Railway / Replit не даст боту уснуть) ----
 const app = express();
-app.get("/", (_, res) => res.send("AFK bot is running 24/7"));
+app.get("/", (_, res) => res.send("AFK bot running 24/7 ✅"));
 app.listen(8080);
 
 // ---- CONFIG ----
 const TOKEN = process.env.TOKEN;
-const GUILD_ID = "1200037290047701042";            // ← ID сервера
-const PANEL_CHANNEL_ID = "1300952366954184754"; // ← ID канала панели
-const LOG_CHANNEL_ID = "1383462345790984283";     // ← ID канала логов
+const GUILD_ID = "1200037290047701042";
+const PANEL_CHANNEL_ID = "1300952366954184754";
+const LOG_CHANNEL_ID = "1383462345790984283";
 
-const afk = new Map(); // userId → { reason, until }
+const afk = new Map(); // userId → { reason, untilDate }
 
-// ---- NEW CLIENT ----
+// ---- CLIENT ----
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -57,7 +57,25 @@ async function registerCommands() {
     });
 }
 
-// ---- AFK PANEL UPDATE ----
+// ---- FORMAT MOSCOW TIME ----
+function formatMoscowTime(date) {
+    return date.toLocaleTimeString("ru-RU", {
+        timeZone: "Europe/Moscow",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+    });
+}
+
+// ---- TIME LEFT CALC ----
+function timeLeft(until) {
+    const ms = until - new Date();
+    const h = Math.floor(ms / (1000 * 60 * 60));
+    const m = Math.floor((ms / (1000 * 60)) % 60);
+    return `${h}ч ${m}м`;
+}
+
+// ---- UPDATE PANEL ----
 async function updatePanel(guild) {
     const channel = guild.channels.cache.get(PANEL_CHANNEL_ID);
 
@@ -70,12 +88,12 @@ async function updatePanel(guild) {
         embed.setDescription("✅ Сейчас никто не в AFK");
     } else {
         let text = `• Всего в AFK: **${afk.size}** чел.\n\n`;
-
         let index = 1;
+
         afk.forEach((data, userId) => {
             const user = guild.members.cache.get(userId);
             text += `**${index})** ${user} — Причина: \`${data.reason}\`\n`;
-            text += `Вернусь в: \`${data.until}\`\n\n`;
+            text += `Вернусь в: \`${formatMoscowTime(data.untilDate)}\` (${timeLeft(data.untilDate)})\n\n`;
             index++;
         });
 
@@ -115,7 +133,7 @@ async function updatePanel(guild) {
 }
 
 // ---- LOGGING ----
-async function logAction(guild, user, action, reason = null, until = null) {
+async function logAction(guild, user, action, reason = null) {
     const channel = guild.channels.cache.get(LOG_CHANNEL_ID);
 
     const embed = new EmbedBuilder()
@@ -124,10 +142,29 @@ async function logAction(guild, user, action, reason = null, until = null) {
         .addFields({ name: "Пользователь", value: user.toString(), inline: false });
 
     if (reason) embed.addFields({ name: "Причина", value: "`" + reason + "`" });
-    if (until) embed.addFields({ name: "Вернётся в", value: "`" + until + "`" });
 
     channel.send({ embeds: [embed] });
 }
+
+// ---- AUTO REMOVE AFK ----
+setInterval(async () => {
+    const now = new Date();
+    const guild = client.guilds.cache.get(GUILD_ID);
+    if (!guild) return;
+
+    let updated = false;
+
+    afk.forEach((data, userId) => {
+        if (data.untilDate <= now) {
+            const user = guild.members.cache.get(userId);
+            afk.delete(userId);
+            updated = true;
+            logAction(guild, user, "⌛ AFK снят автоматически (время истекло)");
+        }
+    });
+
+    if (updated) updatePanel(guild);
+}, 10000); // каждые 10 секунд проверка
 
 // ---- BUTTON HANDLERS ----
 client.on("interactionCreate", async (i) => {
@@ -144,20 +181,14 @@ client.on("interactionCreate", async (i) => {
 
         modal.addComponents(
             new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                    .setCustomId("reason")
-                    .setLabel("Причина")
-                    .setStyle(TextInputStyle.Paragraph)
+                new TextInputBuilder().setCustomId("reason").setLabel("Причина").setStyle(TextInputStyle.Paragraph)
             ),
             new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                    .setCustomId("hours")
-                    .setLabel("Время (1-8 часов)")
-                    .setStyle(TextInputStyle.Short)
+                new TextInputBuilder().setCustomId("hours").setLabel("Время (1-8 часов)").setStyle(TextInputStyle.Short)
             )
         );
 
-        await i.showModal(modal);
+        return i.showModal(modal);
     }
 
     if (i.isModalSubmit() && i.customId === "afk_modal") {
@@ -167,11 +198,12 @@ client.on("interactionCreate", async (i) => {
 
         afk.set(i.user.id, {
             reason,
-            until: until.toLocaleTimeString(),
+            untilDate: until,
         });
 
         await updatePanel(i.guild);
-        await logAction(i.guild, i.user, "😴 Ушёл в AFK", reason, until.toLocaleTimeString());
+        await logAction(i.guild, i.user, "😴 Ушёл в AFK", reason);
+
         return i.reply({ content: "✅ Ты ушёл в AFK!", ephemeral: true });
     }
 
