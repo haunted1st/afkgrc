@@ -104,7 +104,7 @@ async function updateAFKPanel(guild) {
 
     const embed = new EmbedBuilder()
         .setColor("#2b2d31")
-        .setImage("attachment://banner_afk.png")
+        .setImage("attachment://banner.png")
         .setDescription(
 `**╔════════════════════╗**
 **         ⏳ AFK PANEL**
@@ -183,10 +183,10 @@ async function updateEconomyPanel() {
 
     const embed = new EmbedBuilder()
         .setColor("#FFD43B")
-        .setImage("attachment://banner_economy.png")
+        .setImage("attachment://banner.png")
         .setDescription(
 `**╔════════════════════╗**
-**     💰 COIN ECONOMY PANEL**
+**     💰 Магазин GARCIA FAMQ**
 **╚════════════════════╝**
 
 🎧 **0.5 coin / минута в войсе**
@@ -195,7 +195,7 @@ async function updateEconomyPanel() {
 
 💰 • Баланс  
 📊 • Топ участников  
-🛒 • FULL RIGHTS (магазин)
+🛒 • Магазин
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -342,3 +342,4 @@ client.once("ready", async () => {
 });
 
 client.login(TOKEN);
+
