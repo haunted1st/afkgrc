@@ -32,7 +32,7 @@ const GUILD_ID = "1200037290047701042";
 const PANEL_CHANNEL_ID = "1434217100636979310";
 const ECONOMY_PANEL_CHANNEL = "1434221655923757126";
 
-const RATE = 0.5; 
+const RATE = 0.5;
 const FULL_RIGHTS_ROLE = "1434495913992257677";
 const FULL_RIGHTS_PRICE = 500;
 
@@ -97,10 +97,10 @@ function timeLeft(until) {
     return `${Math.floor(ms / 60000 / 60)}ч ${Math.floor(ms / 60000) % 60}м`;
 }
 
-// Обновление AFK панели
+// Update AFK Panel
 async function updateAFKPanel(guild) {
     const channel = guild.channels.cache.get(PANEL_CHANNEL_ID);
-    const file = new AttachmentBuilder("banner_afk.png");
+    const file = new AttachmentBuilder("banner.png");
 
     const embed = new EmbedBuilder()
         .setColor("#2b2d31")
@@ -119,7 +119,7 @@ async function updateAFKPanel(guild) {
         let list = "";
         let count = 1;
         afk.forEach((d, uid) => {
-            list += `**${count})** <@${uid}> — \`${d.reason}\`\nВернётся: \`${formatTime(d.untilDate)}\` (**${timeLeft(d.untilDate)}**)\n\n`
+            list += `**${count})** <@${uid}> — \`${d.reason}\`\nВернётся: \`${formatTime(d.untilDate)}\` (**${timeLeft(d.untilDate)}**)\n\n`;
             count++;
         });
         embed.addFields({ name: "Список AFK:", value: list });
@@ -134,7 +134,7 @@ async function updateAFKPanel(guild) {
     else client.afkMessage = await channel.send({ embeds: [embed], files: [file], components: [row] });
 }
 
-// авто снятие AFK
+// Auto remove AFK
 setInterval(() => {
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) return;
@@ -149,7 +149,7 @@ setInterval(() => {
     if (changed) updateAFKPanel(guild);
 }, 5000);
 
-// анти фейк AFK — если сменил канал / вышел с войса
+// Anti fake AFK — switching channels removes AFK
 client.on("voiceStateUpdate", (o, n) => {
     if (afk.has(n.member.id) && o.channelId !== n.channelId) {
         afk.delete(n.member.id);
@@ -174,12 +174,12 @@ setInterval(() => {
     updateEconomyPanel();
 }, 60000);
 
-// UI панели экономики
+// Economy Panel (UI)
 async function updateEconomyPanel() {
     const guild = client.guilds.cache.get(GUILD_ID);
     const channel = guild.channels.cache.get(ECONOMY_PANEL_CHANNEL);
 
-    const file = new AttachmentBuilder("banner_economy.png");
+    const file = new AttachmentBuilder("banner.png");
 
     const embed = new EmbedBuilder()
         .setColor("#FFD43B")
@@ -200,7 +200,7 @@ async function updateEconomyPanel() {
 ━━━━━━━━━━━━━━━━━━
 
 👑 Garcia Family`
-        )
+        );
 
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId("eco_balance").setStyle(ButtonStyle.Success).setEmoji("💰").setLabel("Баланс"),
@@ -248,7 +248,7 @@ client.on("interactionCreate", async i => {
         return i.reply({ content: "👋 Добро пожаловать обратно!", ephemeral: true });
     }
 
-    // ECONOMY PANEL
+    // Economy panel
     if (i.isChatInputCommand() && i.commandName === "econpanel") {
         client.ecoMessage = null;
         updateEconomyPanel();
