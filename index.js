@@ -9,7 +9,6 @@ import {
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
-    AttachmentBuilder,
     EmbedBuilder,
     Routes,
     REST
@@ -29,17 +28,20 @@ app.listen(8080);
 // ------------------------------------------------------------
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = "1200037290047701042";
-const PANEL_CHANNEL_ID = "1434217100636979310";        // AFK PANEL
-const LOG_CHANNEL_ID = "1434217235546771467";           // AFK LOGS
-const ECONOMY_PANEL_CHANNEL = "1434221655923757126";    // ECONOMY PANEL
+const PANEL_CHANNEL_ID = "1434217100636979310";
+const ECONOMY_PANEL_CHANNEL = "1434221655923757126";
 
 const RATE = 0.5; // coin per minute
+const FULL_RIGHTS_ROLE = "1434495913992257677";
+const FULL_RIGHTS_PRICE = 500;
 
 // ------------------------------------------------------------
-// STORAGE (JSON для экономики)
+// STORAGE (economy JSON)
 // ------------------------------------------------------------
 let users = JSON.parse(fs.readFileSync("./users.json", "utf8"));
-function saveUsers() { fs.writeFileSync("./users.json", JSON.stringify(users, null, 2)); }
+function saveUsers() {
+    fs.writeFileSync("./users.json", JSON.stringify(users, null, 2));
+}
 
 // ------------------------------------------------------------
 // DISCORD CLIENT
@@ -63,7 +65,21 @@ async function registerCommands() {
     await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), {
         body: [
             new SlashCommandBuilder().setName("afkpanel").setDescription("Создать панель AFK").toJSON(),
-            new SlashCommandBuilder().setName("econpanel").setDescription("Создать панель экономики").toJSON()
+            new SlashCommandBuilder().setName("econpanel").setDescription("Создать панель экономики").toJSON(),
+
+            new SlashCommandBuilder()
+                .setName("addcoins")
+                .setDescription("Выдать монеты пользователю (админ)")
+                .addUserOption(o => o.setName("user").setDescription("Кому").setRequired(true))
+                .addIntegerOption(o => o.setName("amount").setDescription("Сколько coin?").setRequired(true))
+                .toJSON(),
+
+            new SlashCommandBuilder()
+                .setName("removecoins")
+                .setDescription("Забрать монеты у пользователя (админ)")
+                .addUserOption(o => o.setName("user").setDescription("У кого").setRequired(true))
+                .addIntegerOption(o => o.setName("amount").setDescription("Сколько coin?").setRequired(true))
+                .toJSON()
         ]
     });
 }
@@ -71,7 +87,7 @@ async function registerCommands() {
 // ------------------------------------------------------------
 // AFK SYSTEM
 // ------------------------------------------------------------
-const afk = new Map();
+const afk = new Map(); // { userId → { reason, untilDate, voiceChannelId } }
 
 function formatTime(date) {
     return date.toLocaleTimeString("ru-RU", {
@@ -84,43 +100,43 @@ function formatTime(date) {
 
 function timeLeft(until) {
     const ms = until - new Date();
-    return `${Math.floor(ms / 1000 / 60 / 60)}ч ${Math.floor(ms / 1000 / 60) % 60}м`;
+    return `${Math.floor(ms / 60000 / 60)}ч ${Math.floor(ms / 60000) % 60}м`;
 }
 
 async function updateAFKPanel(guild) {
     const channel = guild.channels.cache.get(PANEL_CHANNEL_ID);
 
     const embed = new EmbedBuilder()
-        .setTitle("⏳ Люди в AFK")
         .setColor("#2b2d31")
+        .setDescription(
+            `**╔════════════════════╗**
+**      ⏳ AFK PANEL**
+**╚════════════════════╝**`
+        )
         .setFooter({ text: "Garcia famq Majestic" });
 
     if (afk.size === 0) {
-        embed.setDescription("Сейчас никто не в AFK ✅");
+        embed.addFields({ name: "Список AFK:", value: "✅ Сейчас никто не в AFK" });
     } else {
-        let t = `• Всего AFK: **${afk.size}**\n\n`;
-        let i = 1;
-        afk.forEach((data, uid) => {
-            const user = guild.members.cache.get(uid);
-            t += `**${i})** ${user}\nПричина: \`${data.reason}\`\nВернусь: \`${formatTime(data.untilDate)}\` (${timeLeft(data.untilDate)})\n\n`;
-            i++;
+        let list = "";
+        let count = 1;
+        afk.forEach((d, uid) => {
+            list += `**${count})** <@${uid}> — \`${d.reason}\`\nВернусь: \`${formatTime(d.untilDate)}\` (${timeLeft(d.untilDate)})\n\n`;
+            count++;
         });
-        embed.setDescription(t);
+        embed.addFields({ name: "Список AFK:", value: list });
     }
-
-    const file = new AttachmentBuilder("banner.png");
-    embed.setImage("attachment://banner.png");
 
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId("afk_on").setStyle(ButtonStyle.Secondary).setEmoji("😴").setLabel("AFK"),
         new ButtonBuilder().setCustomId("afk_off").setStyle(ButtonStyle.Success).setEmoji("✅").setLabel("Вернуться")
     );
 
-    if (client.afkMessage) client.afkMessage.edit({ embeds: [embed], files: [file], components: [row] });
-    else client.afkMessage = await channel.send({ embeds: [embed], files: [file], components: [row] });
+    if (client.afkMessage) client.afkMessage.edit({ embeds: [embed], components: [row] });
+    else client.afkMessage = await channel.send({ embeds: [embed], components: [row] });
 }
 
-// Автоснятие AFK
+// авто-снятие AFK по времени
 setInterval(() => {
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) return;
@@ -132,19 +148,26 @@ setInterval(() => {
             changed = true;
         }
     });
+
     if (changed) updateAFKPanel(guild);
 }, 10000);
 
-setInterval(() => {
-    const guild = client.guilds.cache.get(GUILD_ID);
-    if (guild) updateAFKPanel(guild);
-}, 60000);
+// ❗ анти-фейковый AFK — если человек заходит/выходит из войса
+client.on("voiceStateUpdate", (oldState, newState) => {
+    const uid = newState.member.id;
+
+    if (afk.has(uid)) {
+        // Если человек сменил канал/вышел из войса — снимаем AFK
+        if (oldState.channelId !== newState.channelId) {
+            afk.delete(uid);
+            updateAFKPanel(newState.guild);
+        }
+    }
+});
 
 // ------------------------------------------------------------
-// ECONOMY SYSTEM
+// ECONOMY SYSTEM (voice coins)
 // ------------------------------------------------------------
-
-// начисление coin каждую минуту
 setInterval(() => {
     client.guilds.cache.forEach(guild => {
         guild.members.cache.forEach(member => {
@@ -161,16 +184,30 @@ setInterval(() => {
     updateEconomyPanel();
 }, 60000);
 
-// Экономика панель
+// UI панели экономики
 async function updateEconomyPanel() {
     const guild = client.guilds.cache.get(GUILD_ID);
     const channel = guild.channels.cache.get(ECONOMY_PANEL_CHANNEL);
 
     const embed = new EmbedBuilder()
-        .setTitle("💰 Voice Economy (coin)")
-        .setColor("#e8b923")
-        .setDescription("🎧 За активность в войсах начисляется **0.5 coin / 1 минуту**")
-        .setFooter({ text: "Garcia famq Majestic" });
+        .setColor("#FFD43B")
+        .setDescription(
+`**╔════════════════════╗**
+**     💰 Voice Economy**
+**╚════════════════════╝**
+
+🎧 Начисление: **0.5 coin / мин**
+📈 Награда за активность в войсе
+
+━━━━━━━━━━━━━━━━━━
+
+🛍 Магазин (FULL RIGHTS)
+📊 Топ участников
+💰 Проверка баланса
+
+━━━━━━━━━━━━━━━━━━`
+        )
+        .setFooter({ text: "Garcia famq Majestic • Coin Economy" });
 
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId("eco_top").setStyle(ButtonStyle.Secondary).setEmoji("📊").setLabel("Топ"),
@@ -183,10 +220,13 @@ async function updateEconomyPanel() {
 }
 
 // ------------------------------------------------------------
-// BUTTON HANDLERS
+// BUTTON HANDLERS + SLASH COMMANDS
 // ------------------------------------------------------------
 client.on("interactionCreate", async (i) => {
+
+    // --------------------------------------------------------
     // AFK PANEL
+    // --------------------------------------------------------
     if (i.isChatInputCommand() && i.commandName === "afkpanel") {
         client.afkMessage = null;
         await updateAFKPanel(i.guild);
@@ -207,18 +247,20 @@ client.on("interactionCreate", async (i) => {
         const hours = Math.max(1, Math.min(8, parseInt(i.fields.getTextInputValue("hours"))));
         const until = new Date(Date.now() + hours * 60 * 60 * 1000);
 
-        afk.set(i.user.id, { reason, untilDate: until });
+        afk.set(i.user.id, { reason, untilDate: until, voiceChannelId: i.member.voice?.channelId });
         await updateAFKPanel(i.guild);
-        return i.reply({ content: "✅ Ты ушёл в AFK!", ephemeral: true });
+        return i.reply({ content: "✅ Ты в AFK!", ephemeral: true });
     }
 
     if (i.customId === "afk_off") {
         afk.delete(i.user.id);
         await updateAFKPanel(i.guild);
-        return i.reply({ content: "👋 Добро пожаловать обратно!", ephemeral: true });
+        return i.reply({ content: "👋 Добро пожаловать!", ephemeral: true });
     }
 
-    // ECONOMIC BUTTONS
+    // --------------------------------------------------------
+    // ECONOMY PANEL BUTTONS
+    // --------------------------------------------------------
     if (i.isChatInputCommand() && i.commandName === "econpanel") {
         client.ecoMessage = null;
         await updateEconomyPanel();
@@ -231,13 +273,11 @@ client.on("interactionCreate", async (i) => {
     }
 
     if (i.customId === "eco_top") {
-        const sorted = Object.entries(users)
-            .sort((a, b) => b[1].coins - a[1].coins)
-            .slice(0, 10);
+        const sorted = Object.entries(users).sort((a, b) => b[1].coins - a[1].coins).slice(0, 10);
 
         const embed = new EmbedBuilder()
             .setTitle("📊 Топ по coin")
-            .setColor("#e8b923");
+            .setColor("#FFD43B");
 
         let txt = "";
         sorted.forEach(([uid, data], idx) => {
@@ -249,7 +289,70 @@ client.on("interactionCreate", async (i) => {
     }
 
     if (i.customId === "eco_shop") {
-        return i.reply({ content: "🛒 Магазин скоро!", ephemeral: true });
+        return i.reply({
+            embeds: [
+                new EmbedBuilder()
+                    .setColor("#8e44ad")
+                    .setTitle("🛒 Магазин")
+                    .setDescription(
+`🟣 FULL RIGHTS — **${FULL_RIGHTS_PRICE} coin**
+> выдаётся навсегда`
+                    )
+            ],
+            components: [
+                new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId("buy_fullrights").setStyle(ButtonStyle.Primary).setEmoji("🟣").setLabel("Купить")
+                )
+            ],
+            ephemeral: true
+        });
+    }
+
+    if (i.customId === "buy_fullrights") {
+        if (!users[i.user.id] || users[i.user.id].coins < FULL_RIGHTS_PRICE)
+            return i.reply({ content: "🚫 Недостаточно coin!", ephemeral: true });
+
+        users[i.user.id].coins -= FULL_RIGHTS_PRICE;
+        saveUsers();
+
+        const role = i.guild.roles.cache.get(FULL_RIGHTS_ROLE);
+        i.member.roles.add(role);
+
+        return i.reply({ content: "✅ FULL RIGHTS выдана!", ephemeral: true });
+    }
+
+    // --------------------------------------------------------
+    // /addcoins — выдача монет
+    // --------------------------------------------------------
+    if (i.isChatInputCommand() && i.commandName === "addcoins") {
+        if (!i.member.permissions.has("Administrator"))
+            return i.reply({ content: "⛔ Только администратор может выдавать coin!", ephemeral: true });
+
+        const user = i.options.getUser("user");
+        const amount = i.options.getInteger("amount");
+
+        if (!users[user.id]) users[user.id] = { coins: 0, minutes: 0 };
+        users[user.id].coins += amount;
+        saveUsers();
+
+        return i.reply({ content: `✅ Выдано **${amount} coin** пользователю <@${user.id}>.`, ephemeral: true });
+    }
+
+    // --------------------------------------------------------
+    // /removecoins — снять монеты
+    // --------------------------------------------------------
+    if (i.isChatInputCommand() && i.commandName === "removecoins") {
+        if (!i.member.permissions.has("Administrator"))
+            return i.reply({ content: "⛔ Только администратор может забирать coin!", ephemeral: true });
+
+        const user = i.options.getUser("user");
+        const amount = i.options.getInteger("amount");
+
+        if (!users[user.id]) users[user.id] = { coins: 0, minutes: 0 };
+        users[user.id].coins = Math.max(users[user.id].coins - amount, 0);
+        saveUsers();
+
+        return i.reply({ content: `❌ Забрано **${amount} coin** у <@${user.id}>.`, ephemeral: true });
     }
 });
 
@@ -260,4 +363,3 @@ client.once("ready", async () => {
 });
 
 client.login(TOKEN);
-
