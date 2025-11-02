@@ -280,6 +280,7 @@ client.on("interactionCreate", async i => {
         return i.reply({ embeds: [embed], ephemeral: true });
     }
 
+    // -------------------- SHOP --------------------
     if (i.customId === "eco_shop") {
         return i.reply({
             embeds: [
@@ -294,5 +295,15 @@ client.on("interactionCreate", async i => {
             components: [
                 new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId("buy_fullrights").setStyle(ButtonStyle.Primary).setEmoji("🟣").setLabel("Купить"),
-                    new ButtonBuilder().setCustomId("buy_removewarn").setStyle(ButtonStyle.Secondary).setEmoji("
+                    new ButtonBuilder().setCustomId("buy_removewarn").setStyle(ButtonStyle.Secondary).setEmoji("⚪").setLabel("Купить")
+                )
+            ],
+            ephemeral: true
+        });
+    }
 
+    if (i.customId === "buy_fullrights") {
+        if (!users[i.user.id] || users[i.user.id].coins < FULL_RIGHTS_PRICE)
+            return i.reply({ content: "🚫 Недостаточно coin!", ephemeral: true });
+
+        users[i.user.id].coins -= FULL
